@@ -163,3 +163,37 @@ def render(df_vendas, col_consultores, col_vendas):
                                     st.warning(
                                         "Clique novamente para confirmar exclusão."
                                     )
+def comissao_por_mes(col_consultores, col_vendas):
+    st.title("📅 Comissão por Mês")
+
+    # Carregar todas as vendas
+    vendas = list(col_vendas.find().sort("data", -1))
+    if not vendas:
+        st.info("Nenhuma venda registrada.")
+        return
+
+    df = pd.DataFrame(vendas)
+    df["data"] = pd.to_datetime(df["data"])
+    df["mes_ano"] = df["data"].dt.strftime("%Y-%m")
+
+    # Calcular comissão recebida por venda
+    df["comissao_recebida"] = df.apply(
+        lambda row: sum(p.get("valor_parcela", 0) for p in row.get("comissoes", [])
+                        if p.get("consultor_recebe", False)),
+        axis=1
+    )
+
+    # Filtro por consultor
+    consultores = sorted(df["consultor"].unique())
+    consultor_sel = st.selectbox("Selecione o consultor (ou deixe em branco para todos)", ["Todos"] + consultores)
+
+    if consultor_sel != "Todos":
+        df = df[df["consultor"] == consultor_sel]
+
+    # Agrupar por mês
+    resumo = df.groupby("mes_ano")["comissao_recebida"].sum().reset_index()
+    resumo = resumo.sort_values("mes_ano")
+
+    # Mostrar tabela e gráfico
+    st.dataframe(resumo.style.format({"comissao_recebida": "R$ {:,.2f}"}), hide_index=True)
+    st.bar_chart(resumo.set_index("mes_ano")["comissao_recebida"])
