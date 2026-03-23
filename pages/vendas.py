@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime, date
 from utils import calcular_comissao
 
@@ -60,7 +61,7 @@ def render(df_vendas, col_consultores, col_vendas):
                     st.success(
                         "Venda criada com 13 parcelas (apenas a primeira marcada)!"
                     )
-                    st.rerun()
+                    st.balloons()
 
     # ----------- EDITAR / EXCLUIR -----------
     with tab2:
@@ -163,6 +164,8 @@ def render(df_vendas, col_consultores, col_vendas):
                                     st.warning(
                                         "Clique novamente para confirmar exclusão."
                                     )
+
+
 def comissao_por_mes(col_consultores, col_vendas):
     st.title("📅 Comissão por Mês")
 
@@ -172,28 +175,42 @@ def comissao_por_mes(col_consultores, col_vendas):
         st.info("Nenhuma venda registrada.")
         return
 
-    df = pd.DataFrame(vendas)
-    df["data"] = pd.to_datetime(df["data"])
-    df["mes_ano"] = df["data"].dt.strftime("%Y-%m")
+    # Explodir as comissões (cada parcela vira uma linha)
+    comissoes = []
+    for venda in vendas:
+        # Converter valor da venda para Decimal a partir de string
+        valor_total = Decimal(str(venda.get("valor", "0")))
+        # Comissão total = 1,5% do valor da venda
+        comissao_total = (valor_total * Decimal("0.015")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        # Valor de cada parcela = comissão total / 13
+        valor_parcela = (comissao_total / Decimal("13")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
-    # Calcular comissão recebida por venda
-    df["comissao_recebida"] = df.apply(
-        lambda row: sum(p.get("valor_parcela", 0) for p in row.get("comissoes", [])
-                        if p.get("consultor_recebe", False)),
-        axis=1
-    )
+        for parcela in venda.get("comissoes", []):
+            comissoes.append({
+                "consultor": venda["consultor"],
+                "cliente": venda["cliente"],
+                "mes": parcela.get("mes"),
+                "valor_parcela": valor_parcela,
+                "consultor_recebe": parcela.get("consultor_recebe", False)
+            })
+
+    # Criar DataFrame com as parcelas
+    df_com = pd.DataFrame(comissoes)
+
+    # Filtrar apenas parcelas que o consultor vai receber
+    df_com = df_com[df_com["consultor_recebe"] == True]
 
     # Filtro por consultor
-    consultores = sorted(df["consultor"].unique())
+    consultores = sorted(df_com["consultor"].unique())
     consultor_sel = st.selectbox("Selecione o consultor (ou deixe em branco para todos)", ["Todos"] + consultores)
 
     if consultor_sel != "Todos":
-        df = df[df["consultor"] == consultor_sel]
+        df_com = df_com[df_com["consultor"] == consultor_sel]
 
     # Agrupar por mês
-    resumo = df.groupby("mes_ano")["comissao_recebida"].sum().reset_index()
-    resumo = resumo.sort_values("mes_ano")
+    resumo = df_com.groupby("mes")["valor_parcela"].sum().reset_index()
+    resumo = resumo.sort_values("mes")
 
     # Mostrar tabela e gráfico
-    st.dataframe(resumo.style.format({"comissao_recebida": "R$ {:,.2f}"}), hide_index=True)
-    st.bar_chart(resumo.set_index("mes_ano")["comissao_recebida"])
+    st.dataframe(resumo.style.format({"valor_parcela": "R$ {:,.2f}"}), hide_index=True)
+    st.bar_chart(resumo.set_index("mes")["valor_parcela"])
