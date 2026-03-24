@@ -3,31 +3,33 @@ import streamlit as st
 
 def render(col_consultores):
     st.header("🧑‍💼 Cadastrar Consultor")
+
     nome = st.text_input("Nome do consultor")
+
     if st.button("Cadastrar", type="primary"):
         nome = nome.strip()
-        if nome and not col_consultores.find_one({"nome": nome}):
-            col_consultores.insert_one({"nome": nome})
-            st.success(f"Consultor {nome} cadastrado!")
-            st.rerun()
-        elif nome:
+
+        if not nome:
+            st.warning("Digite um nome válido.")
+            return
+
+        usuario_id = st.session_state["usuario"]["_id"]
+
+        # 🔥 verifica duplicado SOMENTE do usuário logado
+        existe = col_consultores.find_one({
+            "nome": nome,
+            "usuario_id": usuario_id
+        })
+
+        if existe:
             st.warning("Já existe consultor com esse nome.")
+            return
 
+        # ✅ insert correto
+        col_consultores.insert_one({
+            "nome": nome,
+            "usuario_id": usuario_id
+        })
 
-def buscar(df_vendas):
-    st.title("🔍 Buscar por Consultor")
-    termo = st.text_input("Nome do consultor (ou parte)").strip()
-    if termo:
-        res = df_vendas[df_vendas["consultor"].str.contains(termo, case=False, na=False)].copy()
-        if res.empty:
-            st.warning("Nenhum resultado.")
-        else:
-            st.dataframe(
-                res[["data", "cliente", "valor", "total_comissao"]].style.format({
-                    "data": "{:%d/%m/%Y}",
-                    "valor": "R$ {:,.2f}",
-                    "total_comissao": "R$ {:,.2f}"
-                }),
-                use_container_width=True,
-                hide_index=True
-            )
+        st.success(f"Consultor {nome} cadastrado!")
+        st.balloons()

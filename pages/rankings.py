@@ -1,77 +1,135 @@
 import streamlit as st
+import pandas as pd
+import altair as alt
 
 
 def render(df_vendas):
-    st.title("🏆 Rankings e Relatórios")
+    st.title("🏆 Performance de Consultores")
 
     if df_vendas.empty:
         st.info("Nenhuma venda no período.")
-    else:
-        tab1, tab2, tab3 = st.tabs(["Total Acumulado", "Por Mês", "Por Semana"])
-        medalhas = ["🥇", "🥈", "🥉"]
+        return
 
-        # ---------------- TOTAL ACUMULADO ----------------
-        with tab1:
-            ranking = (
-                df_vendas.groupby("consultor")["valor"]
-                .sum()
-                .reset_index(name="Total Vendas")
-            )
-            ranking = ranking.sort_values("Total Vendas", ascending=False)
-            st.dataframe(
-                ranking.style.format({"Total Vendas": "R$ {:,.2f}"}), hide_index=True
-            )
+    tab1, tab2, tab3 = st.tabs(
+        ["💰 Comissão Total", "📅 Comissão por Mês", "📊 Performance Geral"]
+    )
 
-            # Top 3 consultores
-            top3 = ranking.head(3)
-            cols = st.columns(len(top3))
-            for i, row in enumerate(top3.itertuples()):
-                cols[i].metric(f"{medalhas[i]} {row.consultor}", f"R$ {row._2:,.2f}")
+    medalhas = ["🥇", "🥈", "🥉"]
 
-            st.bar_chart(ranking.set_index("consultor")["Total Vendas"])
+    # ===================== 💰 TOTAL COMISSÃO =====================
+    with tab1:
+        ranking = (
+            df_vendas.groupby("consultor")["total_comissao"]
+            .sum()
+            .reset_index(name="Total Comissão")
+            .sort_values("Total Comissão", ascending=False)
+        )
 
-        # ---------------- POR MÊS ----------------
-        with tab2:
-            meses_disp = sorted(df_vendas["mes_ano"].unique())
-            mes_sel = st.selectbox("Selecione o mês", meses_disp)
-            mensal = (
-                df_vendas[df_vendas["mes_ano"] == mes_sel]
-                .groupby("consultor")["valor"]
-                .sum()
-                .reset_index(name="Total Vendas")
-            )
-            mensal = mensal.sort_values("Total Vendas", ascending=False)
-            st.dataframe(
-                mensal.style.format({"Total Vendas": "R$ {:,.2f}"}), hide_index=True
+        st.subheader("💰 Ranking por Comissão")
+
+        st.dataframe(
+            ranking.style.format({"Total Comissão": "R$ {:,.2f}"}),
+            hide_index=True
+        )
+
+        # TOP 3
+        top3 = ranking.head(3)
+        cols = st.columns(len(top3))
+
+        for i, row in enumerate(top3.itertuples()):
+            cols[i].metric(
+                f"{medalhas[i]} {row.consultor}",
+                f"R$ {row._2:,.2f}"
             )
 
-            # Top 3 consultores do mês
-            top3_mensal = mensal.head(3)
-            cols_m = st.columns(len(top3_mensal))
-            for i, row in enumerate(top3_mensal.itertuples()):
-                cols_m[i].metric(f"{medalhas[i]} {row.consultor}", f"R$ {row._2:,.2f}")
-
-            st.bar_chart(mensal.set_index("consultor")["Total Vendas"])
-
-        # ---------------- POR SEMANA ----------------
-        with tab3:
-            semanas_disp = sorted(df_vendas["semana"].unique())
-            semana_sel = st.selectbox("Selecione a semana", semanas_disp)
-            semanal = (
-                df_vendas[df_vendas["semana"] == semana_sel]
-                .groupby("consultor")["valor"]
-                .sum()
-                .reset_index(name="Total Vendas")
+        # Gráfico
+        chart = (
+            alt.Chart(ranking)
+            .mark_bar()
+            .encode(
+                x=alt.X("consultor:N", title="Consultor", sort="-y"),
+                y=alt.Y("Total Comissão:Q", title="Comissão (R$)"),
+                tooltip=["consultor", "Total Comissão"]
             )
-            semanal = semanal.sort_values("Total Vendas", ascending=False)
-            st.dataframe(
-                semanal.style.format({"Total Vendas": "R$ {:,.2f}"}), hide_index=True
+        )
+
+        st.altair_chart(chart, use_container_width=True)
+
+    # ===================== 📅 POR MÊS =====================
+    with tab2:
+        meses_disp = sorted(df_vendas["mes_ano"].unique())
+        mes_sel = st.selectbox("Selecione o mês", meses_disp)
+
+        mensal = (
+            df_vendas[df_vendas["mes_ano"] == mes_sel]
+            .groupby("consultor")["total_comissao"]
+            .sum()
+            .reset_index(name="Comissão Mensal")
+            .sort_values("Comissão Mensal", ascending=False)
+        )
+
+        st.dataframe(
+            mensal.style.format({"Comissão Mensal": "R$ {:,.2f}"}),
+            hide_index=True
+        )
+
+        # TOP 3
+        top3_m = mensal.head(3)
+        cols_m = st.columns(len(top3_m))
+
+        for i, row in enumerate(top3_m.itertuples()):
+            cols_m[i].metric(
+                f"{medalhas[i]} {row.consultor}",
+                f"R$ {row._2:,.2f}"
             )
 
-            # Top 3 consultores da semana
-            top3_sem = semanal.head(3)
-            cols_s = st.columns(len(top3_sem))
-            for i, row in enumerate(top3_sem.itertuples()):
-                cols_s[i].metric(f"{medalhas[i]} {row.consultor}", f"R$ {row._2:,.2f}")
+        chart_m = (
+            alt.Chart(mensal)
+            .mark_bar()
+            .encode(
+                x=alt.X("consultor:N", sort="-y"),
+                y="Comissão Mensal:Q",
+                tooltip=["consultor", "Comissão Mensal"]
+            )
+        )
 
-            st.bar_chart(semanal.set_index("consultor")["Total Vendas"])
+        st.altair_chart(chart_m, use_container_width=True)
+
+    # ===================== 📊 PERFORMANCE GERAL =====================
+    with tab3:
+        st.subheader("📊 Indicadores de Performance")
+
+        resumo = (
+            df_vendas.groupby("consultor")
+            .agg(
+                total_vendas=("valor", "sum"),
+                total_comissao=("total_comissao", "sum"),
+                qtd_vendas=("valor", "count"),
+            )
+            .reset_index()
+        )
+
+        resumo["ticket_medio"] = resumo["total_vendas"] / resumo["qtd_vendas"]
+
+        st.dataframe(
+            resumo.style.format({
+                "total_vendas": "R$ {:,.2f}",
+                "total_comissao": "R$ {:,.2f}",
+                "ticket_medio": "R$ {:,.2f}",
+            }),
+            hide_index=True
+        )
+
+        # gráfico combinado (comissão)
+        chart_perf = (
+            alt.Chart(resumo)
+            .mark_bar()
+            .encode(
+                x=alt.X("consultor:N", sort="-y"),
+                y="total_comissao:Q",
+                tooltip=["consultor", "total_comissao", "qtd_vendas"]
+            )
+            .properties(title="Performance por Comissão")
+        )
+
+        st.altair_chart(chart_perf, use_container_width=True)

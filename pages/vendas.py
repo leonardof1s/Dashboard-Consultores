@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
+import altair as alt
+from decimal import Decimal, ROUND_HALF_UP
 from datetime import datetime, date
-from utils import calcular_comissao
 
 
 def render(df_vendas, col_consultores, col_vendas):
@@ -11,23 +12,49 @@ def render(df_vendas, col_consultores, col_vendas):
     # ----------- NOVA VENDA -----------
     with tab1:
         consultores = [doc["nome"] for doc in col_consultores.find().sort("nome")]
+
         with st.form("nova_venda"):
             col_a, col_b = st.columns(2)
+
             consultor = col_a.selectbox("Consultor", consultores)
             cliente = col_a.text_input("Cliente")
             grupo = col_b.text_input("Grupo")
             cota = col_b.text_input("Cota")
-            valor = col_a.number_input("Valor da Venda", min_value=0.0, step=1000.0)
+
+            valor_str = col_a.text_input("Valor da Venda", "100000")
+            valor_str = valor_str.replace(".", "").replace(",", ".")
+            valor = Decimal(valor_str)
+
+            # 🔥 NOVO: tipo de comissão
+            tipo_comissao = col_a.selectbox(
+                "Tipo de Comissão",
+                ["Percentual", "Valor Fixo"]
+            )
+
+            if tipo_comissao == "Percentual":
+                comissao_input = col_a.text_input("Comissão (%)", "1.5")
+                percentual = Decimal(comissao_input.replace(",", ".")) / Decimal(100)
+                comissao_total = (valor * percentual).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+            else:
+                comissao_input = col_a.text_input("Comissão (R$)", "1500")
+                comissao_total = Decimal(
+                    comissao_input.replace(".", "").replace(",", ".")
+                ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
             data_v = col_b.date_input("Data da Venda", value=date.today())
 
             if st.form_submit_button("Salvar Nova Venda", type="primary"):
                 if cliente and valor > 0:
-                    valor_parcela = calcular_comissao(valor)
+
+                    valor_parcela = (comissao_total / Decimal("13")).quantize(
+                        Decimal("0.01"), rounding=ROUND_HALF_UP
+                    )
+
                     meses = (
                         pd.date_range(
-                            start=datetime.combine(data_v, datetime.min.time()).replace(
-                                day=1
-                            ),
+                            start=datetime.combine(data_v, datetime.min.time()).replace(day=1),
                             periods=13,
                             freq="MS",
                         )
@@ -35,32 +62,33 @@ def render(df_vendas, col_consultores, col_vendas):
                         .tolist()
                     )
 
-                    # Apenas a primeira comissão marcada
                     comissoes = []
                     for i, m in enumerate(meses):
                         comissoes.append(
                             {
                                 "mes": m,
-                                "valor_parcela": valor_parcela,
+                                "valor_parcela": float(valor_parcela),
                                 "cliente_pagou": True,
                                 "consultor_recebe": True if i == 0 else False,
                             }
                         )
 
                     doc = {
+                        "usuario_id": st.session_state["usuario"]["_id"],
                         "consultor": consultor,
                         "cliente": cliente.strip(),
                         "grupo": grupo.strip(),
                         "cota": cota.strip(),
                         "valor": float(valor),
                         "data": datetime.combine(data_v, datetime.min.time()),
+                        "tipo_comissao": tipo_comissao,
+                        "comissao_definida": float(comissao_total),
                         "comissoes": comissoes,
                     }
+
                     col_vendas.insert_one(doc)
-                    st.success(
-                        "Venda criada com 13 parcelas (apenas a primeira marcada)!"
-                    )
-                    st.rerun()
+                    st.success("Venda criada com sucesso!")
+                    st.balloons()
 
     # ----------- EDITAR / EXCLUIR -----------
     with tab2:
@@ -72,9 +100,7 @@ def render(df_vendas, col_consultores, col_vendas):
 
             if consultor_sel:
                 clientes = sorted(
-                    df_vendas[df_vendas["consultor"] == consultor_sel][
-                        "cliente"
-                    ].unique()
+                    df_vendas[df_vendas["consultor"] == consultor_sel]["cliente"].unique()
                 )
                 cliente_sel = st.selectbox("Selecione o cliente", clientes)
 
@@ -83,6 +109,7 @@ def render(df_vendas, col_consultores, col_vendas):
                         (df_vendas["consultor"] == consultor_sel)
                         & (df_vendas["cliente"] == cliente_sel)
                     ]
+
                     venda_sel_str = st.selectbox(
                         "Selecione a venda",
                         options=vendas_cliente["_id"].astype(str).tolist(),
@@ -95,42 +122,82 @@ def render(df_vendas, col_consultores, col_vendas):
                         venda = vendas_cliente[
                             vendas_cliente["_id"].astype(str) == venda_sel_str
                         ].iloc[0]
+
                         with st.form("editar_venda"):
                             cliente_e = st.text_input("Cliente", venda["cliente"])
                             grupo_e = st.text_input("Grupo", venda.get("grupo", ""))
                             cota_e = st.text_input("Cota", venda.get("cota", ""))
-                            valor_e = st.number_input(
-                                "Valor", value=float(venda["valor"])
-                            )
+
+                            valor_str_e = st.text_input("Valor", str(venda["valor"]))
+                            valor_str_e = valor_str_e.replace(".", "").replace(",", ".")
+                            valor_e = Decimal(valor_str_e)
+
                             data_e = st.date_input("Data", venda["data"].date())
 
+                            # 🔥 NOVO: tipo comissão edição
+                            tipo_comissao_e = st.selectbox(
+                                "Tipo de Comissão",
+                                ["Percentual", "Valor Fixo"],
+                                index=0 if venda.get("tipo_comissao") == "Percentual" else 1
+                            )
+
+                            if tipo_comissao_e == "Percentual":
+                                comissao_input_e = st.text_input("Comissão (%)", "1.5")
+                                percentual_e = Decimal(comissao_input_e.replace(",", ".")) / Decimal(100)
+                                comissao_total = (valor_e * percentual_e).quantize(
+                                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                                )
+                            else:
+                                comissao_input_e = st.text_input("Comissão (R$)", "1500")
+                                comissao_total = Decimal(
+                                    comissao_input_e.replace(".", "").replace(",", ".")
+                                ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
+                            valor_parcela = (comissao_total / Decimal(13)).quantize(
+                                Decimal("0.01"), rounding=ROUND_HALF_UP
+                            )
+
+                            meses = (
+                                pd.date_range(
+                                    start=datetime.combine(data_e, datetime.min.time()).replace(day=1),
+                                    periods=13,
+                                    freq="MS",
+                                )
+                                .strftime("%Y-%m")
+                                .tolist()
+                            )
+
+                            comissoes = []
+                            for i, m in enumerate(meses):
+                                comissoes.append(
+                                    {
+                                        "mes": m,
+                                        "valor_parcela": float(valor_parcela),
+                                        "cliente_pagou": True,
+                                        "consultor_recebe": True if i == 0 else False,
+                                    }
+                                )
+
                             st.subheader("Parcelas de Comissão")
-                            com_df = pd.DataFrame(venda.get("comissoes", []))
+                            com_df = pd.DataFrame(comissoes)
 
                             com_edited = st.data_editor(
                                 com_df,
                                 column_config={
-                                    "mes": st.column_config.TextColumn(
-                                        "Mês", disabled=True
-                                    ),
+                                    "mes": st.column_config.TextColumn("Mês", disabled=True),
                                     "valor_parcela": st.column_config.NumberColumn(
                                         "Valor Parcela", disabled=True, format="R$ %.2f"
                                     ),
-                                    "cliente_pagou": st.column_config.CheckboxColumn(
-                                        "Cliente Pagou"
-                                    ),
-                                    "consultor_recebe": st.column_config.CheckboxColumn(
-                                        "Consultor Recebe"
-                                    ),
+                                    "cliente_pagou": st.column_config.CheckboxColumn("Cliente Pagou"),
+                                    "consultor_recebe": st.column_config.CheckboxColumn("Consultor Recebe"),
                                 },
                                 use_container_width=True,
                                 hide_index=True,
                             )
 
                             col_btn1, col_btn2 = st.columns(2)
-                            if col_btn1.form_submit_button(
-                                "✅ Salvar Alterações", type="primary"
-                            ):
+
+                            if col_btn1.form_submit_button("✅ Salvar Alterações", type="primary"):
                                 col_vendas.update_one(
                                     {"_id": venda["_id"]},
                                     {
@@ -139,27 +206,106 @@ def render(df_vendas, col_consultores, col_vendas):
                                             "grupo": grupo_e.strip(),
                                             "cota": cota_e.strip(),
                                             "valor": float(valor_e),
-                                            "data": datetime.combine(
-                                                data_e, datetime.min.time()
-                                            ),
+                                            "data": datetime.combine(data_e, datetime.min.time()),
+                                            "tipo_comissao": tipo_comissao_e,
+                                            "comissao_definida": float(comissao_total),
                                             "comissoes": com_edited.to_dict("records"),
                                         }
                                     },
                                 )
                                 st.success("Alterações salvas!")
+                                st.balloons()
                                 st.rerun()
 
-                            if col_btn2.form_submit_button(
-                                "🗑️ Excluir Venda", type="primary"
-                            ):
+                            if col_btn2.form_submit_button("🗑️ Excluir Venda", type="primary"):
                                 if st.session_state.get("confirma_excluir", False):
                                     col_vendas.delete_one({"_id": venda["_id"]})
                                     st.success("Venda excluída!")
+                                    st.balloons()
                                     if "confirma_excluir" in st.session_state:
                                         del st.session_state["confirma_excluir"]
                                     st.rerun()
                                 else:
                                     st.session_state["confirma_excluir"] = True
-                                    st.warning(
-                                        "Clique novamente para confirmar exclusão."
-                                    )
+                                    st.warning("Clique novamente para confirmar exclusão.")
+
+
+def comissao_por_mes(col_consultores, col_vendas):
+    st.title("📅 Comissão por Mês")
+
+    vendas = list(col_vendas.find().sort("data", -1))
+    if not vendas:
+        st.info("Nenhuma venda registrada.")
+        return
+
+    comissoes = []
+
+    for venda in vendas:
+        comissao_total = Decimal(str(venda.get("comissao_definida", 0)))
+
+        # 🔥 fallback vendas antigas
+        if comissao_total == 0:
+            valor_total = Decimal(str(venda.get("valor", 0)))
+            comissao_total = (valor_total * Decimal("0.015")).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+
+        valor_parcela = (comissao_total / Decimal("13")).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+
+        if "comissoes" in venda and venda["comissoes"]:
+            for parcela in venda["comissoes"]:
+                comissoes.append(
+                    {
+                        "consultor": venda["consultor"],
+                        "cliente": venda["cliente"],
+                        "mes": parcela.get("mes"),
+                        "valor_parcela": Decimal(str(parcela.get("valor_parcela", 0))),
+                        "consultor_recebe": parcela.get("consultor_recebe", False),
+                    }
+                )
+        else:
+            for i in range(1, 14):
+                comissoes.append(
+                    {
+                        "consultor": venda["consultor"],
+                        "cliente": venda["cliente"],
+                        "mes": f"Parcela {i}",
+                        "valor_parcela": valor_parcela,
+                        "consultor_recebe": True,
+                    }
+                )
+
+    df_com = pd.DataFrame(comissoes)
+    df_com = df_com[df_com["consultor_recebe"] == True]
+
+    consultores = sorted(df_com["consultor"].unique())
+    consultor_sel = st.selectbox(
+        "Selecione o consultor (ou deixe em branco para todos)",
+        ["Todos"] + consultores
+    )
+
+    if consultor_sel != "Todos":
+        df_com = df_com[df_com["consultor"] == consultor_sel]
+
+    resumo = df_com.groupby("mes")["valor_parcela"].sum().reset_index()
+    resumo = resumo.sort_values("mes")
+
+    st.dataframe(
+        resumo.style.format({"valor_parcela": "R$ {:,.2f}"}),
+        hide_index=True
+    )
+
+    chart = (
+        alt.Chart(resumo)
+        .mark_bar(color="#4C78A8")
+        .encode(
+            x=alt.X("mes:N", title="Mês"),
+            y=alt.Y("valor_parcela:Q", title="Comissão (R$)"),
+            tooltip=["mes", "valor_parcela"],
+        )
+        .properties(width=700, height=400, title="Comissão por Mês")
+    )
+
+    st.altair_chart(chart, use_container_width=True)
