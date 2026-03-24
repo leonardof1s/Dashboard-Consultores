@@ -6,7 +6,15 @@ import altair as alt
 def render(col_vendas):
     st.title("📜 Histórico de Pagamentos")
 
-    vendas = list(col_vendas.find())
+    # 🔐 VALIDA LOGIN
+    if "usuario" not in st.session_state:
+        st.warning("Faça login primeiro")
+        st.stop()
+
+    usuario_id = st.session_state["usuario"]["_id"]
+
+    # 🔥 FILTRO POR USUÁRIO
+    vendas = list(col_vendas.find({"usuario_id": usuario_id}))
 
     if not vendas:
         st.info("Nenhuma venda encontrada.")
@@ -18,17 +26,21 @@ def render(col_vendas):
     for venda in vendas:
         for parcela in venda.get("comissoes", []):
             dados.append({
-                "consultor": venda["consultor"],
-                "cliente": venda["cliente"],
+                "consultor": venda.get("consultor"),
+                "cliente": venda.get("cliente"),
                 "mes": parcela.get("mes"),
                 "valor": float(parcela.get("valor_parcela", 0)),
                 "recebido": parcela.get("consultor_recebe", False),
             })
 
+    if not dados:
+        st.warning("Nenhuma comissão encontrada.")
+        return
+
     df = pd.DataFrame(dados)
 
     # ------------------ FILTRO ------------------
-    consultores = ["Todos"] + sorted(df["consultor"].unique().tolist())
+    consultores = ["Todos"] + sorted(df["consultor"].dropna().unique().tolist())
 
     consultor_sel = st.selectbox("Filtrar por consultor", consultores)
 
