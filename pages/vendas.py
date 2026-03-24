@@ -11,7 +11,16 @@ def render(df_vendas, col_consultores, col_vendas):
 
     # ----------- NOVA VENDA -----------
     with tab1:
-        consultores = [doc["nome"] for doc in col_consultores.find().sort("nome")]
+        if "usuario" not in st.session_state:
+            st.warning("Faça login primeiro")
+            st.stop()
+
+        usuario_id = st.session_state["usuario"]["_id"]
+
+        consultores = [
+            doc["nome"]
+            for doc in col_consultores.find({"usuario_id": usuario_id}).sort("nome")
+        ]
 
         with st.form("nova_venda"):
             col_a, col_b = st.columns(2)
@@ -239,9 +248,17 @@ def comissao_por_mes(col_consultores, col_vendas):
     import pandas as pd
     from decimal import Decimal, ROUND_HALF_UP
 
+    # 🔐 VALIDA LOGIN
+    if "usuario" not in st.session_state:
+        st.warning("Faça login primeiro")
+        st.stop()
+
+    usuario_id = st.session_state["usuario"]["_id"]
+
     st.title("📅 Comissão por Mês")
 
-    vendas = list(col_vendas.find())
+    # 🔥 FILTRO POR USUÁRIO (ESSENCIAL)
+    vendas = list(col_vendas.find({"usuario_id": usuario_id}))
 
     if not vendas:
         st.info("Nenhuma venda registrada.")
@@ -251,17 +268,17 @@ def comissao_por_mes(col_consultores, col_vendas):
 
     for venda in vendas:
         # 🔥 usa comissão já salva (novo padrão)
-        if "comissoes" in venda and venda["comissoes"]:
+        if isinstance(venda.get("comissoes"), list) and venda["comissoes"]:
             for parcela in venda["comissoes"]:
                 comissoes.append({
-                    "consultor": venda["consultor"],
-                    "cliente": venda["cliente"],
+                    "consultor": venda.get("consultor"),
+                    "cliente": venda.get("cliente"),
                     "mes": parcela.get("mes"),
                     "valor_parcela": float(parcela.get("valor_parcela", 0)),
                     "consultor_recebe": parcela.get("consultor_recebe", False),
                 })
 
-        # 🔴 fallback (caso antigo)
+        # 🔴 fallback (vendas antigas)
         else:
             valor = Decimal(str(venda.get("valor", 0)))
             comissao_total = (valor * Decimal("0.015")).quantize(
@@ -273,8 +290,8 @@ def comissao_por_mes(col_consultores, col_vendas):
 
             for i in range(1, 14):
                 comissoes.append({
-                    "consultor": venda["consultor"],
-                    "cliente": venda["cliente"],
+                    "consultor": venda.get("consultor"),
+                    "cliente": venda.get("cliente"),
                     "mes": f"Parcela {i}",
                     "valor_parcela": float(valor_parcela),
                     "consultor_recebe": True,
@@ -289,6 +306,10 @@ def comissao_por_mes(col_consultores, col_vendas):
         st.warning("Nenhuma comissão encontrada.")
         return
 
+    # 🔧 evita erro com valores nulos
+    df = df.dropna(subset=["consultor", "mes"])
+
+    # ------------------ FILTRO ------------------
     consultores = sorted(df["consultor"].unique())
 
     consultor_sel = st.selectbox(
@@ -298,12 +319,15 @@ def comissao_por_mes(col_consultores, col_vendas):
     if consultor_sel != "Todos":
         df = df[df["consultor"] == consultor_sel]
 
+    # ------------------ AGRUPAMENTO ------------------
     resumo = df.groupby("mes")["valor_parcela"].sum().reset_index()
     resumo = resumo.sort_values("mes")
 
+    # ------------------ TABELA ------------------
     st.dataframe(
         resumo.style.format({"valor_parcela": "R$ {:,.2f}"}),
         hide_index=True
     )
 
+    # ------------------ GRÁFICO ------------------
     st.bar_chart(resumo.set_index("mes")["valor_parcela"])
