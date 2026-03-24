@@ -232,3 +232,78 @@ def render(df_vendas, col_consultores, col_vendas):
                                     st.warning(
                                         "Clique novamente para confirmar exclusão."
                                     )
+
+
+def comissao_por_mes(col_consultores, col_vendas):
+    import streamlit as st
+    import pandas as pd
+    from decimal import Decimal, ROUND_HALF_UP
+
+    st.title("📅 Comissão por Mês")
+
+    vendas = list(col_vendas.find())
+
+    if not vendas:
+        st.info("Nenhuma venda registrada.")
+        return
+
+    comissoes = []
+
+    for venda in vendas:
+        # 🔥 usa comissão já salva (novo padrão)
+        if "comissoes" in venda and venda["comissoes"]:
+            for parcela in venda["comissoes"]:
+                comissoes.append({
+                    "consultor": venda["consultor"],
+                    "cliente": venda["cliente"],
+                    "mes": parcela.get("mes"),
+                    "valor_parcela": float(parcela.get("valor_parcela", 0)),
+                    "consultor_recebe": parcela.get("consultor_recebe", False),
+                })
+
+        # 🔴 fallback (caso antigo)
+        else:
+            valor = Decimal(str(venda.get("valor", 0)))
+            comissao_total = (valor * Decimal("0.015")).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            valor_parcela = (comissao_total / Decimal("13")).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+
+            for i in range(1, 14):
+                comissoes.append({
+                    "consultor": venda["consultor"],
+                    "cliente": venda["cliente"],
+                    "mes": f"Parcela {i}",
+                    "valor_parcela": float(valor_parcela),
+                    "consultor_recebe": True,
+                })
+
+    df = pd.DataFrame(comissoes)
+
+    # 🔥 só parcelas que o consultor recebe
+    df = df[df["consultor_recebe"] == True]
+
+    if df.empty:
+        st.warning("Nenhuma comissão encontrada.")
+        return
+
+    consultores = sorted(df["consultor"].unique())
+
+    consultor_sel = st.selectbox(
+        "Selecione o consultor", ["Todos"] + consultores
+    )
+
+    if consultor_sel != "Todos":
+        df = df[df["consultor"] == consultor_sel]
+
+    resumo = df.groupby("mes")["valor_parcela"].sum().reset_index()
+    resumo = resumo.sort_values("mes")
+
+    st.dataframe(
+        resumo.style.format({"valor_parcela": "R$ {:,.2f}"}),
+        hide_index=True
+    )
+
+    st.bar_chart(resumo.set_index("mes")["valor_parcela"])
