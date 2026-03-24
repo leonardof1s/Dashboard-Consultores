@@ -87,8 +87,10 @@ def render(df_vendas, col_consultores, col_vendas):
                     }
 
                     col_vendas.insert_one(doc)
-                    st.success("Venda criada com sucesso!")
-                    st.balloons()
+                    st.success(
+                        "Venda criada com 13 parcelas (apenas a primeira marcada)!"
+                    )
+                    st.rerun()
 
     # ----------- EDITAR / EXCLUIR -----------
     with tab2:
@@ -227,85 +229,6 @@ def render(df_vendas, col_consultores, col_vendas):
                                     st.rerun()
                                 else:
                                     st.session_state["confirma_excluir"] = True
-                                    st.warning("Clique novamente para confirmar exclusão.")
-
-
-def comissao_por_mes(col_consultores, col_vendas):
-    st.title("📅 Comissão por Mês")
-
-    vendas = list(col_vendas.find().sort("data", -1))
-    if not vendas:
-        st.info("Nenhuma venda registrada.")
-        return
-
-    comissoes = []
-
-    for venda in vendas:
-        comissao_total = Decimal(str(venda.get("comissao_definida", 0)))
-
-        # 🔥 fallback vendas antigas
-        if comissao_total == 0:
-            valor_total = Decimal(str(venda.get("valor", 0)))
-            comissao_total = (valor_total * Decimal("0.015")).quantize(
-                Decimal("0.01"), rounding=ROUND_HALF_UP
-            )
-
-        valor_parcela = (comissao_total / Decimal("13")).quantize(
-            Decimal("0.01"), rounding=ROUND_HALF_UP
-        )
-
-        if "comissoes" in venda and venda["comissoes"]:
-            for parcela in venda["comissoes"]:
-                comissoes.append(
-                    {
-                        "consultor": venda["consultor"],
-                        "cliente": venda["cliente"],
-                        "mes": parcela.get("mes"),
-                        "valor_parcela": Decimal(str(parcela.get("valor_parcela", 0))),
-                        "consultor_recebe": parcela.get("consultor_recebe", False),
-                    }
-                )
-        else:
-            for i in range(1, 14):
-                comissoes.append(
-                    {
-                        "consultor": venda["consultor"],
-                        "cliente": venda["cliente"],
-                        "mes": f"Parcela {i}",
-                        "valor_parcela": valor_parcela,
-                        "consultor_recebe": True,
-                    }
-                )
-
-    df_com = pd.DataFrame(comissoes)
-    df_com = df_com[df_com["consultor_recebe"] == True]
-
-    consultores = sorted(df_com["consultor"].unique())
-    consultor_sel = st.selectbox(
-        "Selecione o consultor (ou deixe em branco para todos)",
-        ["Todos"] + consultores
-    )
-
-    if consultor_sel != "Todos":
-        df_com = df_com[df_com["consultor"] == consultor_sel]
-
-    resumo = df_com.groupby("mes")["valor_parcela"].sum().reset_index()
-    resumo = resumo.sort_values("mes")
-
-    st.dataframe(
-        resumo.style.format({"valor_parcela": "R$ {:,.2f}"}),
-        hide_index=True
-    )
-
-    chart = (
-        alt.Chart(resumo)
-        .mark_bar(color="#4C78A8")
-        .encode(
-            x=alt.X("mes:N", title="Mês"),
-            y=alt.Y("valor_parcela:Q", title="Comissão (R$)"),
-            tooltip=["mes", "valor_parcela"],
-        )
-        .properties(width=700, height=400, title="Comissão por Mês")
-    )
-
-    st.altair_chart(chart, use_container_width=True)
+                                    st.warning(
+                                        "Clique novamente para confirmar exclusão."
+                                    )

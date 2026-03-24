@@ -1,9 +1,7 @@
+import streamlit as st
 from pymongo import MongoClient
-import os
-from dotenv import load_dotenv
 
-load_dotenv()
-mongo_uri = os.getenv("MONGO_URI")
+mongo_uri = st.secrets["MONGO_URI"]
 client = MongoClient(mongo_uri)
 
 db = client["dashboard_consultores"]
